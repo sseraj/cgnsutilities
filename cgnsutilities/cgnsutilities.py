@@ -1535,6 +1535,54 @@ class Grid(object):
 
                 blk.addB2B(b2b)
 
+    def symmToAxi(self, axis, angle, symmFace):
+        """
+        Convert a one-cell wide planar mesh to an axisymmetric wedge.
+
+        Parameters
+        ----------
+        axis : list
+            The axis defining the direction of axisymmetry.
+
+        angle : float
+            The wedge angle in degrees.
+
+        symmFace : str
+            The block face that will be rotated to form the wedge.
+            The wedge will be symmetric about this face.
+            This must be one of 'iLow', 'iHigh', 'jLow', 'jHigh', 'kLow', 'kHigh'.
+
+        """
+
+        # Copy the grid and rotate it clockwise by half the wedge angle
+        gridCopy = copy.deepcopy(self)
+        gridCopy.rotate(axis[0], axis[1], axis[2], -angle / 2)
+
+        # Rotate the grid counterclockwise by half the wedge angle
+        self.rotate(axis[0], axis[1], axis[2], angle / 2)
+
+        for i in range(len(self.blocks)):
+            if symmFace == "iLow":
+                # Overwrite the iHigh plane with the iLow plane from the copy
+                self.blocks[i].coords[-1, :, :, :] = gridCopy.blocks[i].coords[0, :, :, :]
+            elif symmFace == "iHigh":
+                # Overwrite the iLow plane with the iHigh plane from the copy
+                self.blocks[i].coords[0, :, :, :] = gridCopy.blocks[i].coords[-1, :, :, :]
+            elif symmFace == "jLow":
+                # Overwrite the jHigh plane with the jLow plane from the copy
+                self.blocks[i].coords[:, -1, :, :] = gridCopy.blocks[i].coords[:, 0, :, :]
+            elif symmFace == "jHigh":
+                # Overwrite the jLow plane with the jHigh plane from the copy
+                self.blocks[i].coords[:, 0, :, :] = gridCopy.blocks[i].coords[:, -1, :, :]
+            elif symmFace == "kLow":
+                # Overwrite the kHigh plane with the kLow plane from the copy
+                self.blocks[i].coords[:, :, -1, :] = gridCopy.blocks[i].coords[:, :, 0, :]
+            elif symmFace == "kHigh":
+                # Overwrite the kLow plane with the kHigh plane from the copy
+                self.blocks[i].coords[:, :, 0, :] = gridCopy.blocks[i].coords[:, :, -1, :]
+            else:
+                raise ValueError(f"symmFace must be one of iLow, iHigh, jLow, jHigh, kLow, kHigh. Input was {symmFace}")
+
     def addConvArray(self, arrayName, arrayData):
         # This method just appends a new array data to the convergence history dictionary
         self.convArray[arrayName] = arrayData
