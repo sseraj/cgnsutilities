@@ -1539,6 +1539,9 @@ class Grid(object):
         """
         Convert a one-cell wide planar mesh to an axisymmetric wedge.
 
+        WARNING: After calling this, make sure your blocks stay right-handed (or left-handed)
+                 if that's how you define them. If they do not, flip the defined axis.
+
         Parameters
         ----------
         axis : list
@@ -1554,11 +1557,11 @@ class Grid(object):
 
         """
 
-        # Copy the grid and rotate it clockwise by half the wedge angle
+        # Copy the grid and rotate by half the wedge angle
         gridCopy = copy.deepcopy(self)
         gridCopy.rotate(axis[0], axis[1], axis[2], -angle / 2)
 
-        # Rotate the grid counterclockwise by half the wedge angle
+        # Rotate the grid the other way by half the wedge angle
         self.rotate(axis[0], axis[1], axis[2], angle / 2)
 
         for i in range(len(self.blocks)):
