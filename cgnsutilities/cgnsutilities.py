@@ -696,10 +696,10 @@ class Grid(object):
         print("Running Cartesian grid generator")
 
         # Preallocate arrays
-        extensions = np.zeros((2, 3), order="F")
-        nNodes = np.zeros(3, order="F")
-        weightGR = np.zeros(3, order="F")
-        numBins = np.zeros(3, order="F")
+        extensions = np.zeros((2, 3), dtype=float)
+        nNodes = np.zeros(3, dtype=int)
+        weightGR = np.zeros(3, dtype=float)
+        numBins = np.zeros(3, dtype=int)
 
         # Read four lines of the cartesian specs file
         with open(cartFile, "r") as f:
@@ -849,8 +849,7 @@ class Grid(object):
         # Define tangent bunching law
         def tanDist(Sp1, Sp2, N):
             """
-            This is the tangential spacing developed by Ney Secco.
-            This bunching law is coarse at the ends and fine at the middle
+            The tangential spacing is coarse at the ends and fine at the middle
             of the interval, just like shown below:
             |    |   |  | || |  |   |    |
 
@@ -993,7 +992,8 @@ class Grid(object):
                     x0bin = xmin + dxBin * binIndex
                     xfbin = xmin + dxBin * (binIndex + 1)
                     # Find cells that touch this interval and get their edges
-                    bol = -(((S[:-1] < x0bin) * (S[1:] < x0bin)) + ((S[:-1] > xfbin) * (S[1:] > xfbin)))
+                    # Note that ~ is an inverse operation (eqv. to np.invert) inverting the boolean array
+                    bol = ~(((S[:-1] < x0bin) * (S[1:] < x0bin)) + ((S[:-1] > xfbin) * (S[1:] > xfbin)))
                     bolEdges = E[bol]
                     # print bol
                     # Compute edge mismatch and increment variable
@@ -1018,7 +1018,10 @@ class Grid(object):
 
             # Optimize
             res = minimize(
-                func, x_start, method="Nelder-Mead", options={"maxiter": 2000, "disp": True, "xtol": 1e-8, "ftol": 1e-8}
+                func,
+                x_start,
+                method="Nelder-Mead",
+                options={"maxiter": 2000, "disp": True, "xatol": 1e-8, "fatol": 1e-8},
             )
 
             # Split variables
@@ -1047,15 +1050,15 @@ class Grid(object):
         if nNodes[0] > 3:
             gx = max((Sx[1] - Sx[0]) / (Sx[2] - Sx[1]), (Sx[-1] - Sx[-2]) / (Sx[-2] - Sx[-3]))
         else:
-            gx = None
+            gx = 0.0
         if nNodes[1] > 3:
             gy = max((Sy[1] - Sy[0]) / (Sy[2] - Sy[1]), (Sy[-1] - Sy[-2]) / (Sy[-2] - Sy[-3]))
         else:
-            gy = None
+            gy = 0.0
         if nNodes[2] > 3:
             gz = max((Sz[1] - Sz[0]) / (Sz[2] - Sz[1]), (Sz[-1] - Sz[-2]) / (Sz[-2] - Sz[-3]))
         else:
-            gz = None
+            gz = 0.0
 
         # Print growth ratios
         print("")
@@ -1447,7 +1450,8 @@ class Grid(object):
         """
         This rotates the grid around an axis that passes through the origin.
         vx, vy, vz are the components of the rotation vector
-        theta is the rotation angle, in degrees.
+        theta is the rotation angle, in degrees. The rotation
+        follows the right hand rule about the given axis.
 
         Ney Secco 2016-11
         """
@@ -1475,7 +1479,7 @@ class Grid(object):
         rotMat[2, 2] = ww * ww + (1.0 - ww * ww) * cc
 
         for blk in self.blocks:
-            blk.coords[:, :, :] = np.dot(blk.coords[:, :, :], rotMat)
+            blk.coords[:, :, :] = blk.coords[:, :, :] @ rotMat.T
 
     def extrude(self, direction):
         """
@@ -1489,6 +1493,10 @@ class Grid(object):
         # Extrude all blocks
         for blk in self.blocks:
             blk.extrude(direction)
+
+        # Update cell dimension to three if it starts as two
+        if self.cellDim == 2:
+            self.cellDim = 3
 
         # Rebuild B2B connectivity
         self.connect()
@@ -1826,7 +1834,7 @@ class Block(object):
                 self.coords = newCoords
                 self.dims = new_dimensions[:]
 
-    def _extrudeGetDataOrderAndDIms(self, directionNormal, nSteps):
+    def _extrudeGetDataOrderAndDims(self, directionNormal, nSteps):
         """This is a support function that member functions extrude and revolve call"""
 
         # Note that the self.dims always has data in the first and second
@@ -1907,10 +1915,10 @@ class Block(object):
         self.addBoco(Boco(bocoName, bocoType, ptRange, family))
 
     def extrude(self, direction):
-        """Extrudes from 2D panar grid to 3D"""
+        """Extrudes from 2D planar grid to 3D"""
 
         # Get the data order and new dims
-        order, newDims = self._extrudeGetDataOrderAndDIms(direction, 1)
+        order, newDims = self._extrudeGetDataOrderAndDims(direction, 2)
 
         # Allocate memory for new coordinates
         newCoords = np.zeros(newDims)
@@ -1956,7 +1964,7 @@ class Block(object):
         angleRadStep = wedgeAngleRad / (nThetas - 1)
 
         # Get the data order and new dims
-        order, newDims = self._extrudeGetDataOrderAndDIms(normalDirection, nThetas)
+        order, newDims = self._extrudeGetDataOrderAndDims(normalDirection, nThetas)
 
         # Allocate memory for new coordinates
         newCoords = np.zeros(newDims)
@@ -3453,7 +3461,7 @@ def mergeGrid(grid):
     return grid
 
 
-def combineGrids(grids, useOldNames=False):
+def combineGrids(grids, useOldNames=False, useOldNumbers=False):
     """Method that takes in a list of grids and returns a new grid object
     containing all zones from each grid. The blocks are renamed as
     there could (almost most certainly) be conflicts between the zone
@@ -3462,7 +3470,16 @@ def combineGrids(grids, useOldNames=False):
 
     If useOldNames=True we will preserve the domain names after merging
     the blocks, otherwise, we will replace all names by the filenames.
+    However, it will still update the block name's numbers. To preserve
+    the original numbers, set useOldNumbers=True.
     """
+    # Check that no grids have the same name. If they do, they will
+    # overwrite each other when added to the grid dict.
+    gridNames = set()
+    for grid in grids:
+        if grid.name in gridNames:
+            raise RuntimeError(f"Two grids have the name {grid.name}, but grid names must be unique")
+        gridNames.add(grid.name)
 
     # Create a dictionary to contain grid objects with their names
     # as the corresponding keys
@@ -3492,13 +3509,18 @@ def combineGrids(grids, useOldNames=False):
         # Loop over the blocks and obtain the name mapping
         for blk in grid.blocks:
             nBlock += 1
-            if not useOldNames:
-                blockName = name
+            if useOldNames and useOldNumbers:
+                blockName = blk.name
+                if blockName in zoneMap.keys():
+                    raise RuntimeError(
+                        f"Duplicate block name {blockName}, try without useOldNumbers or rename the block"
+                    )
+            elif useOldNames:
+                blockName = blk.name.split(".")[0] + f".{nBlock:05}"
             else:
-                blockName = blk.name.split(".")[0]
-            newName = blockName + f".{nBlock:05}"
-            zoneMap[blk.name] = newName
-            blk.name = newName
+                blockName = name + f".{nBlock:05}"
+            zoneMap[blk.name] = blockName
+            blk.name = blockName
 
         # Now loop back over the blocks, replacing the donorName using
         # the map we defined above
